@@ -1,4 +1,4 @@
-name: Build Exact Web Preview APK from web-source.zip
+name: Fix White Screen APK Builder
 
 on:
   push:
@@ -13,32 +13,25 @@ jobs:
       - name: 1. Checkout Repository
         uses: actions/checkout@v4
 
-      - name: 2. Setup Node.js 20
-        uses: actions/setup-node@v4
-        with:
-          node-version: '20'
-
-      - name: 3. Setup Java 17 & Gradle 8.7
+      - name: 2. Setup Java 17 & Gradle 8.7
         uses: actions/setup-java@v4
         with:
           java-version: '17'
           distribution: 'temurin'
 
-      - name: 4. Setup Gradle
+      - name: 3. Setup Gradle
         uses: gradle/actions/setup-gradle@v3
         with:
           gradle-version: '8.7'
 
-      - name: 5. Extract web-source.zip & Build Real Web App
+      - name: 4. Extract web-source.zip & Flatten for Direct WebView
         run: |
           mkdir -p extracted_web
           if [ -f "web-source.zip" ]; then
-            echo "Unzipping web-source.zip..."
             unzip -o "web-source.zip" -d extracted_web/
           else
             for z in *.zip; do
               if [ -f "$z" ]; then
-                echo "Unzipping $z..."
                 unzip -o "$z" -d extracted_web/
               fi
             done
@@ -48,40 +41,14 @@ jobs:
           mkdir -p app/src/main/assets
           mkdir -p app/src/main/res/values
 
-          # Locate package.json inside extracted folder
-          PKG_FILE=$(find extracted_web . -maxdepth 4 -name "package.json" | head -n 1)
-
-          if [ -n "$PKG_FILE" ]; then
-            WEB_DIR=$(dirname "$PKG_FILE")
-            echo "Found Web App in: $WEB_DIR"
-            pushd "$WEB_DIR"
-
-            # Inject your personal Gemini API Key directly so JARVIS never fails
-            echo "GEMINI_API_KEY=AIzaSyDNKMF5hhri9fvpU7DSgHyFKB7rdkKaTI" > .env
-            echo "VITE_GEMINI_API_KEY=AIzaSyDNKMF5hhri9fvpU7DSgHyFKB7rdkKaTI" >> .env
-            echo "API_KEY=AIzaSyDNKMF5hhri9fvpU7DSgHyFKB7rdkKaTI" >> .env
-
-            find . -maxdepth 3 -type f \( -name "*.ts" -o -name "*.tsx" -o -name "*.js" \) -exec sed -i 's/process\.env\.GEMINI_API_KEY/"AIzaSyDNKMF5hhri9fvpU7DSgHyFKB7rdkKaTI"/g' {} + || true
-            find . -maxdepth 3 -type f \( -name "*.ts" -o -name "*.tsx" -o -name "*.js" \) -exec sed -i 's/process\.env\.API_KEY/"AIzaSyDNKMF5hhri9fvpU7DSgHyFKB7rdkKaTI"/g' {} + || true
-
-            npm install --legacy-peer-deps || npm install
-            npx vite build --base=/assets/ || npm run build || true
-            popd
-
-            if [ -d "$WEB_DIR/dist" ]; then
-              cp -r "$WEB_DIR/dist/"* app/src/main/assets/
-            elif [ -d "$WEB_DIR/build" ]; then
-              cp -r "$WEB_DIR/build/"* app/src/main/assets/
-            elif [ -d "$WEB_DIR" ]; then
-              cp -r "$WEB_DIR/"* app/src/main/assets/ 2>/dev/null || true
-            fi
-          else
-            HTML_FILE=$(find extracted_web . -maxdepth 4 -name "index.html" | head -n 1)
-            if [ -n "$HTML_FILE" ]; then
-              cp -r $(dirname "$HTML_FILE")/* app/src/main/assets/
-            else
-              echo "ERROR: web-source.zip is missing package.json or index.html!"
-              exit 1
+          # Copy everything directly into assets so paths never break
+          cp -r extracted_web/* app/src/main/assets/ 2>/dev/null || true
+          
+          # If files are nested inside a subfolder, bring index.html to root of assets
+          if [ ! -f "app/src/main/assets/index.html" ]; then
+            NESTED_HTML=$(find extracted_web -name "index.html" | head -n 1)
+            if [ -n "$NESTED_HTML" ]; then
+              cp -r $(dirname "$NESTED_HTML")/* app/src/main/assets/
             fi
           fi
 
@@ -132,8 +99,8 @@ jobs:
                   applicationId "com.myassistant.app"
                   minSdk 26
                   targetSdk 34
-                  versionCode 4
-                  versionName "4.0"
+                  versionCode 5
+                  versionName "5.0"
               }
 
               compileOptions {
@@ -148,7 +115,6 @@ jobs:
           dependencies {
               implementation 'androidx.core:core-ktx:1.12.0'
               implementation 'androidx.appcompat:appcompat:1.6.1'
-              implementation 'androidx.webkit:webkit:1.10.0'
           }
           EOF
 
@@ -184,6 +150,7 @@ jobs:
           </manifest>
           EOF
 
+          # MainActivity loading file:/// directly to eliminate any white screen
           cat << 'EOF' > app/src/main/java/com/myassistant/app/MainActivity.kt
           package com.myassistant.app
 
@@ -195,12 +162,10 @@ jobs:
           import android.webkit.PermissionRequest
           import android.webkit.WebChromeClient
           import android.webkit.WebResourceRequest
-          import android.webkit.WebResourceResponse
           import android.webkit.WebView
           import android.webkit.WebViewClient
           import androidx.appcompat.app.AppCompatActivity
           import androidx.core.app.ActivityCompat
-          import androidx.webkit.WebViewAssetLoader
 
           class MainActivity : AppCompatActivity() {
 
@@ -220,10 +185,6 @@ jobs:
                   webView = WebView(this)
                   setContentView(webView)
 
-                  val assetLoader = WebViewAssetLoader.Builder()
-                      .addPathHandler("/assets/", WebViewAssetLoader.AssetsPathHandler(this))
-                      .build()
-
                   val s = webView.settings
                   s.javaScriptEnabled = true
                   s.domStorageEnabled = true
@@ -231,15 +192,10 @@ jobs:
                   s.mediaPlaybackRequiresUserGesture = false
                   s.allowFileAccess = true
                   s.allowContentAccess = true
+                  s.allowFileAccessFromFileURLs = true
+                  s.allowUniversalAccessFromFileURLs = true
 
                   webView.webViewClient = object : WebViewClient() {
-                      override fun shouldInterceptRequest(
-                          view: WebView,
-                          request: WebResourceRequest
-                      ): WebResourceResponse? {
-                          return assetLoader.shouldInterceptRequest(request.url)
-                      }
-
                       override fun shouldOverrideUrlLoading(view: WebView, request: WebResourceRequest): Boolean {
                           val url = request.url.toString()
                           if (url.startsWith("tel:") || url.startsWith("whatsapp:") || url.startsWith("intent:") || url.contains("youtube.com")) {
@@ -260,7 +216,7 @@ jobs:
                       }
                   }
 
-                  webView.loadUrl("https://appassets.androidplatform.net/assets/index.html")
+                  webView.loadUrl("file:///android_asset/index.html")
               }
 
               override fun onBackPressed() {
@@ -271,9 +227,9 @@ jobs:
 
           gradle assembleDebug --no-daemon
 
-      - name: 6. Upload Final APK
+      - name: 6. Upload Working APK
         uses: actions/upload-artifact@v4
         with:
-          name: Jarvis-Exact-App-APK
+          name: Jarvis-Working-App-APK
           path: app/build/outputs/apk/debug/app-debug.apk
           
