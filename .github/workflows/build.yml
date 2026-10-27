@@ -1,4 +1,4 @@
-name: Ultimate React Build Fixer
+name: Jarvis 100% Hands-Free Super Agent APK
 
 on:
   push:
@@ -29,7 +29,7 @@ jobs:
         with:
           gradle-version: '8.7'
 
-      - name: 5. Unzip, Build Vite App & Copy to Assets
+      - name: 5. Build Web UI + Native Hands-Free Voice, Call & App Engine
         run: |
           mkdir -p extracted_web
           if [ -f "web-source.zip" ]; then
@@ -46,28 +46,27 @@ jobs:
           mkdir -p app/src/main/assets
           mkdir -p app/src/main/res/values
 
-          # Find where package.json is located
           PKG_FILE=$(find extracted_web -maxdepth 4 -name "package.json" | head -n 1)
 
           if [ -n "$PKG_FILE" ]; then
             WEB_DIR=$(dirname "$PKG_FILE")
-            echo "Building React project in $WEB_DIR..."
             pushd "$WEB_DIR"
-            
-            # Inject API Key
+
             echo "GEMINI_API_KEY=AIzaSyDNKMF5hhri9fvpU7DSgHyFKB7rdkKaTI" > .env
             echo "VITE_GEMINI_API_KEY=AIzaSyDNKMF5hhri9fvpU7DSgHyFKB7rdkKaTI" >> .env
-            
+            echo "API_KEY=AIzaSyDNKMF5hhri9fvpU7DSgHyFKB7rdkKaTI" >> .env
+
+            find . -maxdepth 3 -type f \( -name "*.ts" -o -name "*.tsx" -o -name "*.js" \) -exec sed -i 's/process\.env\.GEMINI_API_KEY/"AIzaSyDNKMF5hhri9fvpU7DSgHyFKB7rdkKaTI"/g' {} + || true
+            find . -maxdepth 3 -type f \( -name "*.ts" -o -name "*.tsx" -o -name "*.js" \) -exec sed -i 's/process\.env\.API_KEY/"AIzaSyDNKMF5hhri9fvpU7DSgHyFKB7rdkKaTI"/g' {} + || true
+
             npm install --legacy-peer-deps || npm install
             npx vite build --base=./ || npm run build || true
             popd
 
             if [ -d "$WEB_DIR/dist" ]; then
               cp -r "$WEB_DIR/dist/"* app/src/main/assets/
-              echo "Copied from dist successfully!"
             elif [ -d "$WEB_DIR/build" ]; then
               cp -r "$WEB_DIR/build/"* app/src/main/assets/
-              echo "Copied from build successfully!"
             else
               cp -r "$WEB_DIR/"* app/src/main/assets/ 2>/dev/null || true
             fi
@@ -75,7 +74,6 @@ jobs:
             cp -r extracted_web/* app/src/main/assets/ 2>/dev/null || true
           fi
 
-          # Safety check: if index.html is nested, bring it to root of assets
           if [ ! -f "app/src/main/assets/index.html" ]; then
             FOUND_HTML=$(find app/src/main/assets -name "index.html" | head -n 1)
             if [ -n "$FOUND_HTML" ]; then
@@ -86,7 +84,7 @@ jobs:
             fi
           fi
 
-          # Android configuration files
+          # Gradle Setup
           cat << 'EOF' > settings.gradle
           pluginManagement {
               repositories {
@@ -133,8 +131,8 @@ jobs:
                   applicationId "com.myassistant.app"
                   minSdk 26
                   targetSdk 34
-                  versionCode 6
-                  versionName "6.0"
+                  versionCode 9
+                  versionName "9.0"
               }
 
               compileOptions {
@@ -152,6 +150,7 @@ jobs:
           }
           EOF
 
+          # AndroidManifest with Telecom Call, Package Query & Background Microphone Permissions
           cat << 'EOF' > app/src/main/AndroidManifest.xml
           <?xml version="1.0" encoding="utf-8"?>
           <manifest xmlns:android="http://schemas.android.com/apk/res/android">
@@ -162,7 +161,22 @@ jobs:
               <uses-permission android:name="android.permission.CAMERA" />
               <uses-permission android:name="android.permission.FLASHLIGHT" />
               <uses-permission android:name="android.permission.CALL_PHONE" />
+              <uses-permission android:name="android.permission.ANSWER_PHONE_CALLS" />
+              <uses-permission android:name="android.permission.READ_PHONE_STATE" />
+              <uses-permission android:name="android.permission.READ_CONTACTS" />
+              <uses-permission android:name="android.permission.QUERY_ALL_PACKAGES" />
               <uses-permission android:name="android.permission.SYSTEM_ALERT_WINDOW" />
+              <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+              <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MICROPHONE" />
+              <uses-permission android:name="android.permission.WAKE_LOCK" />
+              <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+
+              <queries>
+                  <intent>
+                      <action android:name="android.intent.action.MAIN" />
+                      <category android:name="android.intent.category.LAUNCHER" />
+                  </intent>
+              </queries>
 
               <application
                   android:allowBackup="true"
@@ -174,95 +188,264 @@ jobs:
                   <activity
                       android:name=".MainActivity"
                       android:exported="true"
+                      android:launchMode="singleTask"
+                      android:keepScreenOn="true"
                       android:configChanges="orientation|screenSize|keyboardHidden">
                       <intent-filter>
                           <action android:name="android.intent.action.MAIN" />
                           <category android:name="android.intent.category.LAUNCHER" />
                       </intent-filter>
                   </activity>
+
+                  <service
+                      android:name=".FloatingControlService"
+                      android:enabled="true"
+                      android:exported="false"
+                      android:foregroundServiceType="microphone" />
               </application>
           </manifest>
           EOF
 
-          cat << 'EOF' > app/src/main/java/com/myassistant/app/MainActivity.kt
+          # Always-On Background Native Voice Service (Works even inside YouTube, Instagram, Calls, or Home Screen!)
+          cat << 'EOF' > app/src/main/java/com/myassistant/app/FloatingControlService.kt
           package com.myassistant.app
 
-          import android.Manifest
           import android.annotation.SuppressLint
+          import android.app.Notification
+          import android.app.NotificationChannel
+          import android.app.NotificationManager
+          import android.app.PendingIntent
+          import android.app.Service
+          import android.content.Context
           import android.content.Intent
+          import android.graphics.Color
+          import android.graphics.PixelFormat
+          import android.graphics.drawable.GradientDrawable
+          import android.hardware.camera2.CameraManager
+          import android.media.AudioManager
           import android.net.Uri
+          import android.os.Build
           import android.os.Bundle
-          import android.webkit.PermissionRequest
-          import android.webkit.WebChromeClient
-          import android.webkit.WebResourceRequest
-          import android.webkit.WebView
-          import android.webkit.WebViewClient
-          import androidx.appcompat.app.AppCompatActivity
-          import androidx.core.app.ActivityCompat
+          import android.os.Handler
+          import android.os.IBinder
+          import android.os.Looper
+          import android.os.PowerManager
+          import android.provider.AlarmClock
+          import android.provider.MediaStore
+          import android.provider.Settings
+          import android.speech.RecognitionListener
+          import android.speech.RecognizerIntent
+          import android.speech.SpeechRecognizer
+          import android.speech.tts.TextToSpeech
+          import android.speech.tts.UtteranceProgressListener
+          import android.telecom.TelecomManager
+          import android.view.Gravity
+          import android.view.MotionEvent
+          import android.view.View
+          import android.view.WindowManager
+          import android.widget.FrameLayout
+          import android.widget.TextView
+          import androidx.core.app.NotificationCompat
+          import java.util.Locale
 
-          class MainActivity : AppCompatActivity() {
+          class FloatingControlService : Service(), TextToSpeech.OnInitListener {
 
-              private lateinit var webView: WebView
+              companion object {
+                  var instance: FloatingControlService? = null
+                  var isAppInForeground: Boolean = true
+                  var awakeUntilTimestamp: Long = 0L
+              }
 
-              @SuppressLint("SetJavaScriptEnabled")
-              override fun onCreate(savedInstanceState: Bundle?) {
-                  super.onCreate(savedInstanceState)
+              private var windowManager: WindowManager? = null
+              private var floatingView: View? = null
+              private var statusBadge: TextView? = null
+              private var wakeLock: PowerManager.WakeLock? = null
+              private var tts: TextToSpeech? = null
+              private var bgRecognizer: SpeechRecognizer? = null
+              private val handler = Handler(Looper.getMainLooper())
+              private var isTtsSpeaking = false
 
-                  val perms = mutableListOf(
-                      Manifest.permission.RECORD_AUDIO,
-                      Manifest.permission.CAMERA,
-                      Manifest.permission.CALL_PHONE
+              override fun onBind(intent: Intent?): IBinder? = null
+
+              override fun onCreate() {
+                  super.onCreate()
+                  instance = this
+                  tts = TextToSpeech(this, this)
+                  acquireWakeLock()
+                  startForegroundNotification()
+                  if (Build.VERSION.SDK_INT < Build.VERSION_CODES.M || Settings.canDrawOverlays(this)) {
+                      showFloatingButton()
+                  }
+                  // Start 1-minute active window on launch
+                  awakeUntilTimestamp = System.currentTimeMillis() + 60000L
+                  startBackgroundVoiceLoop()
+              }
+
+              private fun acquireWakeLock() {
+                  try {
+                      val pm = getSystemService(Context.POWER_SERVICE) as PowerManager
+                      wakeLock = pm.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "Jarvis::HandsFreeWakeLock")
+                      wakeLock?.acquire()
+                  } catch (e: Exception) {
+                      e.printStackTrace()
+                  }
+              }
+
+              private fun startForegroundNotification() {
+                  val channelId = "jarvis_handsfree_channel"
+                  if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                      val channel = NotificationChannel(channelId, "JARVIS Hands-Free Guard", NotificationManager.IMPORTANCE_LOW)
+                      val manager = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+                      manager.createNotificationChannel(channel)
+                  }
+                  val returnIntent = Intent(this, MainActivity::class.java).apply {
+                      addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP)
+                  }
+                  val pendingIntent = PendingIntent.getActivity(
+                      this, 0, returnIntent,
+                      PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
                   )
-                  ActivityCompat.requestPermissions(this, perms.toTypedArray(), 100)
+                  val notification: Notification = NotificationCompat.Builder(this, channelId)
+                      .setContentTitle("J.A.R.V.I.S. 100% Hands-Free Active")
+                      .setContentText("Just say 'Jarvis' anytime from any screen")
+                      .setSmallIcon(android.R.drawable.ic_btn_speak_now)
+                      .setContentIntent(pendingIntent)
+                      .setOngoing(true)
+                      .build()
+                  startForeground(101, notification)
+              }
 
-                  webView = WebView(this)
-                  setContentView(webView)
+              private fun showFloatingButton() {
+                  windowManager = getSystemService(WINDOW_SERVICE) as WindowManager
+                  val density = resources.displayMetrics.density
+                  val width = (105 * density).toInt()
+                  val height = (42 * density).toInt()
 
-                  val s = webView.settings
-                  s.javaScriptEnabled = true
-                  s.domStorageEnabled = true
-                  s.databaseEnabled = true
-                  s.mediaPlaybackRequiresUserGesture = false
-                  s.allowFileAccess = true
-                  s.allowContentAccess = true
-                  s.allowFileAccessFromFileURLs = true
-                  s.allowUniversalAccessFromFileURLs = true
+                  val container = FrameLayout(this)
+                  val bg = GradientDrawable().apply {
+                      shape = GradientDrawable.RECTANGLE
+                      cornerRadius = 50f
+                      setColor(Color.parseColor("#EE03152D"))
+                      setStroke(4, Color.parseColor("#00F3FF"))
+                  }
+                  container.background = bg
 
-                  webView.webViewClient = object : WebViewClient() {
-                      override fun shouldOverrideUrlLoading(view: WebView, request: WebResourceRequest): Boolean {
-                          val url = request.url.toString()
-                          if (url.startsWith("tel:") || url.startsWith("whatsapp:") || url.startsWith("intent:") || url.contains("youtube.com")) {
-                              try {
-                                  startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url)))
-                              } catch (e: Exception) {
-                                  e.printStackTrace()
-                              }
-                              return true
+                  statusBadge = TextView(this).apply {
+                      text = "🟢 JARVIS ON"
+                      setTextColor(Color.parseColor("#00F3FF"))
+                      textSize = 11f
+                      gravity = Gravity.CENTER
+                  }
+                  container.addView(statusBadge, FrameLayout.LayoutParams(width, height))
+
+                  val layoutType = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                      WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY
+                  } else {
+                      @Suppress("DEPRECATION")
+                      WindowManager.LayoutParams.TYPE_PHONE
+                  }
+
+                  val params = WindowManager.LayoutParams(
+                      width, height, layoutType,
+                      WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE,
+                      PixelFormat.TRANSLUCENT
+                  ).apply {
+                      gravity = Gravity.TOP or Gravity.END
+                      x = 14
+                      y = 260
+                  }
+
+                  var initX = 0
+                  var initY = 0
+                  var touchX = 0f
+                  var touchY = 0f
+
+                  container.setOnTouchListener { _, event ->
+                      when (event.action) {
+                          MotionEvent.ACTION_DOWN -> {
+                              initX = params.x
+                              initY = params.y
+                              touchX = event.rawX
+                              touchY = event.rawY
+                              true
                           }
-                          return false
+                          MotionEvent.ACTION_MOVE -> {
+                              params.x = initX - (event.rawX - touchX).toInt()
+                              params.y = initY + (event.rawY - touchY).toInt()
+                              windowManager?.updateViewLayout(container, params)
+                              true
+                          }
+                          MotionEvent.ACTION_UP -> {
+                              if (Math.abs(event.rawX - touchX) < 15 && Math.abs(event.rawY - touchY) < 15) {
+                                  awakeUntilTimestamp = System.currentTimeMillis() + 60000L
+                                  updateBadgeVisual(true)
+                                  bringJarvisToFront("Ji boliye Sir, main sun raha hoon.")
+                              }
+                              true
+                          }
+                          else -> false
                       }
                   }
 
-                  webView.webChromeClient = object : WebChromeClient() {
-                      override fun onPermissionRequest(request: PermissionRequest) {
-                          runOnUiThread { request.grant(request.resources) }
+                  floatingView = container
+                  windowManager?.addView(floatingView, params)
+              }
+
+              private fun updateBadgeVisual(awake: Boolean) {
+                  handler.post {
+                      statusBadge?.text = if (awake) "🟢 JARVIS ON" else "💤 SAY JARVIS"
+                      statusBadge?.setTextColor(if (awake) Color.parseColor("#00FFAA") else Color.parseColor("#00F3FF"))
+                  }
+              }
+
+              // Background SpeechRecognizer so user NEVER needs to tap even when inside YouTube or another app!
+              private fun startBackgroundVoiceLoop() {
+                  handler.post {
+                      try {
+                          if (bgRecognizer == null && SpeechRecognizer.isRecognitionAvailable(this)) {
+                              bgRecognizer = SpeechRecognizer.createSpeechRecognizer(this)
+                              bgRecognizer?.setRecognitionListener(object : RecognitionListener {
+                                  override fun onReadyForSpeech(params: Bundle?) {}
+                                  override fun onBeginningOfSpeech() {}
+                                  override fun onRmsChanged(rmsdB: Float) {}
+                                  override fun onBufferReceived(buffer: ByteArray?) {}
+                                  override fun onEndOfSpeech() {}
+                                  override fun onError(error: Int) {
+                                      scheduleRestartListening(700)
+                                  }
+                                  override fun onResults(results: Bundle?) {
+                                      val matches = results?.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION)
+                                      if (!matches.isNullOrEmpty()) {
+                                          handleSpokenCommand(matches[0])
+                                      }
+                                      scheduleRestartListening(400)
+                                  }
+                                  override fun onPartialResults(partialResults: Bundle?) {}
+                                  override fun onEvent(eventType: Int, params: Bundle?) {}
+                              })
+                          }
+                          scheduleRestartListening(500)
+                      } catch (e: Exception) {
+                          e.printStackTrace()
                       }
                   }
-
-                  webView.loadUrl("file:///android_asset/index.html")
               }
 
-              override fun onBackPressed() {
-                  if (webView.canGoBack()) webView.goBack() else super.onBackPressed()
-              }
-          }
-          EOF
-
-          gradle assembleDebug --no-daemon
-
-      - name: 6. Upload Working APK
-        uses: actions/upload-artifact@v4
-        with:
-          name: Jarvis-Working-App-APK
-          path: app/build/outputs/apk/debug/app-debug.apk
-          
+              private fun scheduleRestartListening(delayMs: Long) {
+                  handler.postDelayed({
+                      val isAwake = System.currentTimeMillis() < awakeUntilTimestamp
+                      updateBadgeVisual(isAwake)
+                      // Only use background recognizer when MainActivity WebView is in background (so they don't clash)
+                      if (!isAppInForeground && !isTtsSpeaking) {
+                          try {
+                              val intent = Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH).apply {
+                                  putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
+                                  putExtra(RecognizerIntent.EXTRA_LANGUAGE, "hi-IN")
+                                  putExtra(RecognizerIntent.EXTRA_MAX_RESULTS, 1)
+                              }
+                              bgRecognizer?.startListening(intent)
+                          } catch (e: Exception) {
+                              e.printStackTrace()
+                          }
+                      } else {
+                          scheduleRestartListenin
