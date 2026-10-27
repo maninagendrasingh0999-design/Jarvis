@@ -1,4 +1,4 @@
-name: Fix White Screen APK Builder
+name: Ultimate React Build Fixer
 
 on:
   push:
@@ -13,18 +13,23 @@ jobs:
       - name: 1. Checkout Repository
         uses: actions/checkout@v4
 
-      - name: 2. Setup Java 17 & Gradle 8.7
+      - name: 2. Setup Node.js 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: 3. Setup Java 17 & Gradle 8.7
         uses: actions/setup-java@v4
         with:
           java-version: '17'
           distribution: 'temurin'
 
-      - name: 3. Setup Gradle
+      - name: 4. Setup Gradle
         uses: gradle/actions/setup-gradle@v3
         with:
           gradle-version: '8.7'
 
-      - name: 4. Extract web-source.zip & Flatten for Direct WebView
+      - name: 5. Unzip, Build Vite App & Copy to Assets
         run: |
           mkdir -p extracted_web
           if [ -f "web-source.zip" ]; then
@@ -41,14 +46,43 @@ jobs:
           mkdir -p app/src/main/assets
           mkdir -p app/src/main/res/values
 
-          # Copy everything directly into assets so paths never break
-          cp -r extracted_web/* app/src/main/assets/ 2>/dev/null || true
-          
-          # If files are nested inside a subfolder, bring index.html to root of assets
+          # Find where package.json is located
+          PKG_FILE=$(find extracted_web -maxdepth 4 -name "package.json" | head -n 1)
+
+          if [ -n "$PKG_FILE" ]; then
+            WEB_DIR=$(dirname "$PKG_FILE")
+            echo "Building React project in $WEB_DIR..."
+            pushd "$WEB_DIR"
+            
+            # Inject API Key
+            echo "GEMINI_API_KEY=AIzaSyDNKMF5hhri9fvpU7DSgHyFKB7rdkKaTI" > .env
+            echo "VITE_GEMINI_API_KEY=AIzaSyDNKMF5hhri9fvpU7DSgHyFKB7rdkKaTI" >> .env
+            
+            npm install --legacy-peer-deps || npm install
+            npx vite build --base=./ || npm run build || true
+            popd
+
+            if [ -d "$WEB_DIR/dist" ]; then
+              cp -r "$WEB_DIR/dist/"* app/src/main/assets/
+              echo "Copied from dist successfully!"
+            elif [ -d "$WEB_DIR/build" ]; then
+              cp -r "$WEB_DIR/build/"* app/src/main/assets/
+              echo "Copied from build successfully!"
+            else
+              cp -r "$WEB_DIR/"* app/src/main/assets/ 2>/dev/null || true
+            fi
+          else
+            cp -r extracted_web/* app/src/main/assets/ 2>/dev/null || true
+          fi
+
+          # Safety check: if index.html is nested, bring it to root of assets
           if [ ! -f "app/src/main/assets/index.html" ]; then
-            NESTED_HTML=$(find extracted_web -name "index.html" | head -n 1)
-            if [ -n "$NESTED_HTML" ]; then
-              cp -r $(dirname "$NESTED_HTML")/* app/src/main/assets/
+            FOUND_HTML=$(find app/src/main/assets -name "index.html" | head -n 1)
+            if [ -n "$FOUND_HTML" ]; then
+              PARENT_DIR=$(dirname "$FOUND_HTML")
+              if [ "$PARENT_DIR" != "app/src/main/assets" ]; then
+                cp -r "$PARENT_DIR/"* app/src/main/assets/
+              fi
             fi
           fi
 
@@ -99,8 +133,8 @@ jobs:
                   applicationId "com.myassistant.app"
                   minSdk 26
                   targetSdk 34
-                  versionCode 5
-                  versionName "5.0"
+                  versionCode 6
+                  versionName "6.0"
               }
 
               compileOptions {
@@ -150,7 +184,6 @@ jobs:
           </manifest>
           EOF
 
-          # MainActivity loading file:/// directly to eliminate any white screen
           cat << 'EOF' > app/src/main/java/com/myassistant/app/MainActivity.kt
           package com.myassistant.app
 
