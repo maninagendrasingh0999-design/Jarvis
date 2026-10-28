@@ -638,7 +638,113 @@ jobs:
                       startActivity(i)
                   }
               }
-                            
+                            override fun onInit(status: Int) {
+                  if (status == TextToSpeech.SUCCESS) {
+                      val res = tts?.setLanguage(Locale("hi", "IN"))
+                      if (res == TextToSpeech.LANG_MISSING_DATA || res == TextToSpeech.LANG_NOT_SUPPORTED) { tts?.setLanguage(Locale.US) }
+                      tts?.setOnUtteranceProgressListener(object : UtteranceProgressListener() {
+                          override fun onStart(utteranceId: String?) { isTtsSpeaking = true }
+                          override fun onDone(utteranceId: String?) {
+                              isTtsSpeaking = false
+                              awakeUntilTimestamp = System.currentTimeMillis() + 60000L
+                              MainActivity.notifyTtsFinished()
+                          }
+                          override fun onError(utteranceId: String?) {
+                              isTtsSpeaking = false
+                              MainActivity.notifyTtsFinished()
+                          }
+                      })
+                      speak("Jarvis Ultimate Hands-Free System on ho gaya hai Sir. Bas Jarvis boliye.")
+                  }
+              }
+
+              fun speak(text: String) {
+                  val cleanText = text.replace(Regex("[*#_`~]"), "")
+                  isTtsSpeaking = true
+                  awakeUntilTimestamp = System.currentTimeMillis() + 60000L
+                  tts?.speak(cleanText, TextToSpeech.QUEUE_FLUSH, null, "jarvis_utt_${System.currentTimeMillis()}")
+              }
+
+              fun stopSpeaking() {
+                  isTtsSpeaking = false
+                  tts?.stop()
+              }
+
+              override fun onDestroy() {
+                  super.onDestroy()
+                  instance = null
+                  bgRecognizer?.destroy()
+                  tts?.shutdown()
+                  if (wakeLock?.isHeld == true) wakeLock?.release()
+                  if (floatingView != null) windowManager?.removeView(floatingView)
+              }
+          }
+          EOF
+
+          cat << 'EOF' > app/src/main/java/com/myassistant/app/MainActivity.kt
+          package com.myassistant.app
+
+          import android.Manifest
+          import android.annotation.SuppressLint
+          import android.content.Intent
+          import android.net.Uri
+          import android.os.Build
+          import android.os.Bundle
+          import android.os.Handler
+          import android.os.Looper
+          import android.provider.Settings
+          import android.view.View
+          import android.view.WindowManager
+          import android.webkit.JavascriptInterface
+          import android.webkit.PermissionRequest
+          import android.webkit.WebChromeClient
+          import android.webkit.WebResourceRequest
+          import android.webkit.WebView
+          import android.webkit.WebViewClient
+          import androidx.appcompat.app.AppCompatActivity
+          import androidx.core.app.ActivityCompat
+
+          class MainActivity : AppCompatActivity() {
+              companion object {
+                  var currentWebView: WebView? = null
+                  fun notifyTtsFinished() {
+                      currentWebView?.post {
+                          currentWebView?.evaluateJavascript("if(window.__onNativeTtsDone) window.__onNativeTtsDone();", null)
+                      }
+                  }
+              }
+
+              private lateinit var webView: WebView
+              private val handler = Handler(Looper.getMainLooper())
+
+              @SuppressLint("SetJavaScriptEnabled")
+              override fun onCreate(savedInstanceState: Bundle?) {
+                  super.onCreate(savedInstanceState)
+                  window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+
+                  val perms = mutableListOf(
+                      Manifest.permission.RECORD_AUDIO,
+                      Manifest.permission.CAMERA,
+                      Manifest.permission.CALL_PHONE,
+                      Manifest.permission.READ_PHONE_STATE,
+                      Manifest.permission.READ_CONTACTS
+                  )
+                  if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) { perms.add(Manifest.permission.ANSWER_PHONE_CALLS) }
+                  if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) { perms.add(Manifest.permission.POST_NOTIFICATIONS) }
+                  ActivityCompat.requestPermissions(this, perms.toTypedArray(), 100)
+
+                  if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M && !Settings.canDrawOverlays(this)) {
+                      val overlayIntent = Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION, Uri.parse("package:$packageName"))
+                      startActivity(overlayIntent)
+                  }
+                  startHandsFreeService()
+
+                  webView = object : WebView(this) {
+                      override fun onWindowVisibilityChanged(visibility: Int) { super.onWindowVisibilityChanged(View.VISIBLE) }
+                  }
+                  currentWebView = webView
+                  setContentView(webView)
+
                   val s = webView.settings
                   s.javaScriptEnabled = true
                   s.domStorageEnabled = true
@@ -727,116 +833,6 @@ jobs:
               }
 
               private fun injectApiKeyAndEngine() {
-                  val geminiKey = BuildConfig.GEMINI_API_KEY
-                  val elevenKey = BuildConfig.ELEVENLB_API_KEY ?: "sk_c36888ff1de346c84f4a7b18d1051d849382a594d69812e6"
-
-                  val js = """
-                      (function() {
-                          try {
-                              localStorage.setItem('GEMINI_API_KEY', '$geminiKey');
-                              localStorage.setItem('ELEVENLABS_API_KEY', '$elevenKey');
-                              window.GEMINI_API_KEY = '$geminiKey';
-                              window.ELEVENLABS_API_KEY = '$elevenKey';
-                              if(window.process && window.process.env) {
-                                  window.process.env.GEMINI_API_KEY = '$geminiKey';
-                                  window.process.env.ELEVENLABS_API_KEY = '$elevenKey';
-                              }
-                          } catch(e) {}
-
-                          if (window.__jarvisHandsFreeInstalled) return;
-                          window.__jarvisHandsFreeInstalled = true;
-                          window.__jarvisAwakeUntil = Date.now() + 60000;
-
-                          var OrigSR = window.SpeechRecognition || window.webkitSpeechRecognition;
-                          if (OrigSR) {
-                              function HandsFreeSpeechRecognition() {
-                                  var sr = new OrigSR();
-                                  var userOnResult = null;
-                                  var userOnEnd = null;
-                                  window.__activeSR = sr;
-
-                                  Object.defineProperty(this, 'lang', { get: function() { return sr.lang; }, set: function(v) { sr.lang = v; } });
-                                  Object.defineProperty(this, 'continuous', { get: function() { return sr.continuous; }, set: function(v) { sr.continuous = v; } });
-                                  Object.defineProperty(this, 'interimResults', { get: function() { return sr.interimResults; }, set: function(v) { sr.interimResults = v; } });
-                                  Object.defineProperty(this, 'onstart', { get: function() { return sr.onstart; }, set: function(fn) { sr.onstart = fn; } });
-                                  Object.defineProperty(this, 'onerror', { get: function() { return sr.onerror; }, set: function(fn) { sr.onerror = fn; } });
-                                  Object.defineProperty(this, 'onend', { get: function() { return userOnEnd; }, set: function(fn) { userOnEnd = fn; } });
-                                  Object.defineProperty(this, 'onresult', { get: function() { return userOnResult; }, set: function(fn) { userOnResult = fn; } });
-
-                                  sr.onresult = function(event) {
-                                      try {
-                                          var lastIdx = event.results.length - 1;
-                                          var transcript = (event.results[lastIdx][0].transcript || '').trim();
-                                          var low = transcript.toLowerCase();
-
-                                          var hasWakeWord = low.includes('jarvis') || low.includes('जार्विस') || low.includes('जर्विस') || low.includes('जरविस') || low.includes('javis');
-                                          var isAwake = Date.now() < window.__jarvisAwakeUntil;
-
-                                          if (!hasWakeWord && !isAwake) return;
-
-                                          window.__jarvisAwakeUntil = Date.now() + 60000;
-
-                                          var stripped = low.replace(/hey|hi|hello|ok|okay|सुनो|अरे|जी|भाई|jarvis|जार्विस|जर्विस|जरविस|javis/gi, '').trim();
-                                          if (hasWakeWord && stripped.length < 2) {
-                                              if (window.AndroidTTS) window.AndroidTTS.speak('Ji boliye Sir!');
-                                              return;
-                                          }
-
-                                          if (window.AndroidTTS && window.AndroidTTS.executeSystemCommand(transcript)) return;
-
-                                          if (typeof userOnResult === 'function') {
-                                              userOnResult.call(sr, event);
-                                          }
-                                      } catch (err) {
-                                          if (typeof userOnResult === 'function') {
-                                              userOnResult.call(sr, event);
-                                          }
-                                      }
-                                  };
-
-                                  sr.onend = function(e) {
-                                      if (typeof userOnEnd === 'function') { try { userOnEnd.call(sr, e); } catch(err) {} }
-                                      setTimeout(function() {
-                                          if (window.AndroidTTS) {
-                                              try { sr.start(); } catch(err) {}
-                                          }
-                                      }, 400);
-                                  };
-
-                                  this.start = function() { try { sr.start(); } catch(e) {} };
-                                  this.stop = function() { try { sr.stop(); } catch(e) {} };
-                                  this.abort = function() { try { sr.abort(); } catch(e) {} };
-                              }
-                              window.SpeechRecognition = HandsFreeSpeechRecognition;
-                              window.webkitSpeechRecognition = HandsFreeSpeechRecognition;
-                          }
-                      })();
-                  """.trimIndent()
-                  webView.evaluateJavascript(js, null)
-              }
-
-              inner class NativeCommandBridge {
-                  @JavascriptInterface
-                  fun speak(text: String) { FloatingControlService.instance?.speak(text) }
-                  @JavascriptInterface
-                  fun stop() { FloatingControlService.instance?.stopSpeaking() }
-                  @JavascriptInterface
-                  fun executeSystemCommand(transcript: String): Boolean { return FloatingControlService.instance?.handleSpokenCommand(transcript) ?: false }
-                  @JavascriptInterface
-                  fun toggleTorch(state: Boolean) { FloatingControlService.instance?.toggleTorch(state) }
-              }
-          }
-          EOF
-
-          gradle assembleDebug --no-daemon
-
-      - name: Upload Jarvis API Configured APK
-        uses: actions/upload-artifact@v4
-        with:
-          name: Jarvis-API-Configured-APK
-          path: app/build/outputs/apk/debug/app-debug.apk
-          if-no-files-found: error
-                        private fun injectApiKeyAndEngine() {
                   val geminiKey = BuildConfig.GEMINI_API_KEY
                   val elevenKey = BuildConfig.ELEVENLABS_API_KEY ?: "sk_c36888ff1de346c84f4a7b18d1051d849382a594d69812e6"
 
