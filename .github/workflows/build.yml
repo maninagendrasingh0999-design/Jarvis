@@ -577,7 +577,7 @@ jobs:
                       tts?.setOnUtteranceProgressListener(object : UtteranceProgressListener() {
                           override fun onStart(utteranceId: String?) { 
                               isTtsSpeaking = true 
-                              try { bgRecognizer?.stop() } catch(e: Exception) {}
+                              try { bgRecognizer?.cancel() } catch(e: Exception) {}
                           }
                           override fun onDone(utteranceId: String?) {
                               isTtsSpeaking = false
@@ -595,7 +595,7 @@ jobs:
 
               fun speak(text: String) {
                   isTtsSpeaking = true
-                  try { bgRecognizer?.stop() } catch(e: Exception) {}
+                  try { bgRecognizer?.cancel() } catch(e: Exception) {}
                   awakeUntilTimestamp = System.currentTimeMillis() + 60000L
                   tts?.speak(text, TextToSpeech.QUEUE_FLUSH, null, "jarvis_utt_${System.currentTimeMillis()}")
               }
