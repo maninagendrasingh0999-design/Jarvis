@@ -1,4 +1,4 @@
-name: Jarvis Ultimate API Configured APK
+name: Jarvis 6-Part Modular Fixed APK
 
 on:
   push:
@@ -24,7 +24,7 @@ jobs:
           sudo unzip -q -d /opt/gradle /tmp/gradle.zip
           echo "/opt/gradle/gradle-8.7/bin" >> $GITHUB_PATH
 
-      - name: Inject API Keys & Build Web UI APK
+      - name: Build Web UI & Inject API Keys
         run: |
           mkdir -p /tmp/web_extract app/src/main/assets app/src/main/java/com/myassistant/app
           
@@ -37,12 +37,6 @@ jobs:
           if [ -z "$(ls -A /tmp/web_extract)" ]; then
             cp -r * /tmp/web_extract/ 2>/dev/null || true
           fi
-
-          # Inject environment keys directly into web source if .env or config exists
-          echo "VITE_GEMINI_API_KEY=AIzaSyDNKMF5hhri9fvpU7DSgHyFKB7rdkxKaTI" >> /tmp/web_extract/.env
-          echo "VITE_ELEVENLABS_API_KEY=sk_c36888ff1de346c84f4a7b18d1051d849382a594d69812e6" >> /tmp/web_extract/.env
-          echo "GEMINI_API_KEY=AIzaSyDNKMF5hhri9fvpU7DSgHyFKB7rdkxKaTI" >> /tmp/web_extract/.env
-          echo "ELEVENLABS_API_KEY=sk_c36888ff1de346c84f4a7b18d1051d849382a594d69812e6" >> /tmp/web_extract/.env
 
           PKG_FILE=$(find /tmp/web_extract -name "package.json" | head -n 1)
           if [ -n "$PKG_FILE" ]; then
@@ -96,8 +90,6 @@ jobs:
           org.gradle.jvmargs=-Xmx2048m -Dfile.encoding=UTF-8
           android.useAndroidX=true
           kotlin.code.style=official
-          GEMINI_API_KEY=AIzaSyDNKMF5hhri9fvpU7DSgHyFKB7rdkxKaTI
-          ELEVENLABS_API_KEY=sk_c36888ff1de346c84f4a7b18d1051d849382a594d69812e6
           EOF
 
           cat << 'EOF' > app/build.gradle
@@ -114,8 +106,8 @@ jobs:
                   applicationId "com.myassistant.app"
                   minSdk 26
                   targetSdk 34
-                  versionCode 35
-                  versionName "35.0"
+                  versionCode 50
+                  versionName "50.0"
                   buildConfigField "String", "GEMINI_API_KEY", "\"AIzaSyDNKMF5hhri9fvpU7DSgHyFKB7rdkxKaTI\""
                   buildConfigField "String", "ELEVENLABS_API_KEY", "\"sk_c36888ff1de346c84f4a7b18d1051d849382a594d69812e6\""
               }
@@ -219,7 +211,7 @@ jobs:
                       val title = extras.getCharSequence(Notification.EXTRA_TITLE)?.toString() ?: "Kisi"
                       val text = extras.getCharSequence(Notification.EXTRA_TEXT)?.toString() ?: ""
                       if (text.isNotEmpty() && !title.contains("WhatsApp", ignoreCase = true)) {
-                          val msg = "Sir, $title ka message aaya hai: $text. Bataiye kya karna hai?"
+                          val msg = "Sir, $title ka message aaya hai: $text."
                           FloatingControlService.instance?.speak(msg)
                       }
                   }
@@ -316,8 +308,8 @@ jobs:
                   }
                   val pendingIntent = PendingIntent.getActivity(this, 0, returnIntent, PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
                   val notification: Notification = NotificationCompat.Builder(this, channelId)
-                      .setContentTitle("J.A.R.V.I.S. 100% Hands-Free Active")
-                      .setContentText("Just say 'Jarvis' anytime from any screen")
+                      .setContentTitle("J.A.R.V.I.S. Hands-Free Active")
+                      .setContentText("Listening...")
                       .setSmallIcon(android.R.drawable.ic_btn_speak_now)
                       .setContentIntent(pendingIntent)
                       .setOngoing(true)
@@ -389,7 +381,7 @@ jobs:
                               if (Math.abs(event.rawX - touchX) < 15 && Math.abs(event.rawY - touchY) < 15) {
                                   awakeUntilTimestamp = System.currentTimeMillis() + 60000L
                                   updateBadgeVisual(true)
-                                  bringJarvisToFront("Ji boliye Sir, main sun raha hoon.")
+                                  bringJarvisToFront("Ji boliye Sir.")
                               }
                               true
                           }
@@ -419,17 +411,19 @@ jobs:
                                   override fun onRmsChanged(rmsdB: Float) {}
                                   override fun onBufferReceived(buffer: ByteArray?) {}
                                   override fun onEndOfSpeech() {}
-                                  override fun onError(error: Int) { scheduleRestartListening(700) }
+                                  override fun onError(error: Int) { scheduleRestartListening(1000) }
                                   override fun onResults(results: Bundle?) {
                                       val matches = results?.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION)
-                                      if (!matches.isNullOrEmpty()) { handleSpokenCommand(matches[0]) }
-                                      scheduleRestartListening(400)
+                                      if (!matches.isNullOrEmpty() && !isTtsSpeaking) { 
+                                          handleSpokenCommand(matches[0]) 
+                                      }
+                                      scheduleRestartListening(800)
                                   }
                                   override fun onPartialResults(partialResults: Bundle?) {}
                                   override fun onEvent(eventType: Int, params: Bundle?) {}
                               })
                           }
-                          scheduleRestartListening(500)
+                          scheduleRestartListening(1000)
                       } catch (e: Exception) { e.printStackTrace() }
                   }
               }
@@ -447,14 +441,18 @@ jobs:
                               bgRecognizer?.startListening(intent)
                           } catch (e: Exception) { e.printStackTrace() }
                       } else {
-                          scheduleRestartListening(1200)
+                          scheduleRestartListening(1500)
                       }
                   }, delayMs)
               }
 
               fun handleSpokenCommand(rawText: String): Boolean {
+                  if (isTtsSpeaking) return false
                   val cmd = rawText.trim()
                   val low = cmd.lowercase(Locale.getDefault())
+                  
+                  if (low.contains("kar raha hun") || low.contains("khol raha hoon")) return false
+
                   val hasWakeWord = low.contains("jarvis") || low.contains("जार्विस") || low.contains("जर्विस") || low.contains("जरविस") || low.contains("javis")
                   val isAwake = System.currentTimeMillis() < awakeUntilTimestamp
 
@@ -469,55 +467,31 @@ jobs:
                       return true
                   }
 
-                  if (low.contains("band kar") || low.contains("बंद कर") || low.contains("kat de") || low.contains("काट दे") || low.contains("wapas") || low.contains("वापस") || low.contains("close app") || low.contains("stop youtube") || low.contains("dusra kaam") || low.contains("दूसरा काम")) {
+                  if (low.contains("band kar") || low.contains("बंद कर") || low.contains("kat de") || low.contains("काट दे") || low.contains("wapas") || low.contains("वापस")) {
                       if (low.contains("call") || low.contains("phone") || low.contains("कॉल") || low.contains("फोन")) {
                           endPhoneCall()
                           return true
                       }
-                      bringJarvisToFront("Theek hai Sir, maine use band kar diya hai. Bataiye ab agla kya kaam karna hai?")
-                      return true
-                  }
-
-                  if ((low.contains("call") || low.contains("phone") || low.contains("कॉल") || low.contains("फोन")) &&
-                      (low.contains("utha") || low.contains("उठा") || low.contains("pick") || low.contains("answer") || low.contains("receive"))) {
-                      answerPhoneCall()
-                      return true
-                  }
-
-                  if ((low.contains("call") || low.contains("phone") || low.contains("कॉल") || low.contains("फोन")) &&
-                      (low.contains("kat") || low.contains("काट") || low.contains("cut") || low.contains("end") || low.contains("disconnect") || low.contains("band") || low.contains("बंद"))) {
-                      endPhoneCall()
-                      return true
-                  }
-
-                  val digits = cmd.replace(Regex("\\D"), "")
-                  if ((low.contains("call") || low.contains("phone") || low.contains("कॉल") || low.contains("फोन") || low.contains("dial")) && digits.length >= 10) {
-                      makeDirectCall(digits)
-                      return true
-                  }
-
-                  if (low.contains("download") || low.contains("install") || low.contains("डाउनलोड") || low.contains("इंस्टॉल")) {
-                      val appName = cleanCmd.replace(Regex("app|application|ko|kar|de|do|karo|play store|se|download|install|डाउनलोड|इंस्टॉल|कर|दे|दो"), "").trim()
-                      downloadAppFromPlayStore(appName.ifEmpty { cleanCmd })
+                      bringJarvisToFront("Theek hai Sir, band kar diya hai.")
                       return true
                   }
 
                   if (low.contains("torch") || low.contains("flashlight") || low.contains("light") || low.contains("टॉर्च") || low.contains("लाइट")) {
-                      val turnOn = !(low.contains("off") || low.contains("band") || low.contains("बंद") || low.contains("bujha"))
+                      val turnOn = !(low.contains("off") || low.contains("band") || low.contains("बंद"))
                       toggleTorch(turnOn)
-                      speak(if (turnOn) "Theek hai Sir, kar raha hoon, flashlight on kar di hai." else "Theek hai Sir, flashlight band kar di hai.")
+                      speak(if (turnOn) "Flashlight on kar di hai." else "Flashlight band kar di hai.")
                       return true
                   }
 
                   if (low.contains("khol") || low.contains("खोल") || low.contains("open") || low.contains("chala") || low.contains("चला")) {
                       if (low.contains("youtube") || low.contains("यूट्यूब") || low.contains("gana") || low.contains("गाना") || low.contains("song")) {
                           val query = cleanCmd.replace(Regex("youtube|यूट्यूब|par|pe|khol|ke|खोल|chala|play|de|do|karo|gana|गाना|song"), "").trim()
-                          speak("Theek hai Sir, kar raha hoon, YouTube khol raha hoon.")
+                          speak("YouTube khol raha hoon.")
                           handler.postDelayed({
                               val url = if (query.isNotEmpty()) "https://www.youtube.com/results?search_query=${Uri.encode(query)}" else "https://www.youtube.com"
                               val i = Intent(Intent.ACTION_VIEW, Uri.parse(url)).apply { addFlags(Intent.FLAG_ACTIVITY_NEW_TASK) }
                               startActivity(i)
-                          }, 2500)
+                          }, 2000)
                           return true
                       }
 
@@ -536,9 +510,9 @@ jobs:
                       val tm = getSystemService(Context.TELECOM_SERVICE) as TelecomManager
                       if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
                           tm.acceptRingingCall()
-                          speak("Theek hai Sir, call utha liya hai.")
+                          speak("Call utha liya hai.")
                       }
-                  } catch (e: Exception) { speak("Sir, call uthane ke liye phone permission allow karein.") }
+                  } catch (e: Exception) { speak("Permission check karein.") }
               }
 
               @SuppressLint("MissingPermission")
@@ -547,36 +521,9 @@ jobs:
                       val tm = getSystemService(Context.TELECOM_SERVICE) as TelecomManager
                       if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
                           val cut = tm.endCall()
-                          speak(if (cut) "Theek hai Sir, call kat diya hai." else "Sir, abhi koi active call nahi chal rahi hai.")
+                          speak(if (cut) "Call kat diya hai." else "Koi call nahi chal rahi.")
                       }
-                  } catch (e: Exception) { speak("Sir, call katne ki permission check karein.") }
-              }
-
-              @SuppressLint("MissingPermission")
-              private fun makeDirectCall(phone: String) {
-                  speak("Theek hai Sir, kar raha hoon, $phone par call laga raha hoon.")
-                  handler.postDelayed({
-                      try {
-                          val i = Intent(Intent.ACTION_CALL, Uri.parse("tel:$phone")).apply { addFlags(Intent.FLAG_ACTIVITY_NEW_TASK) }
-                          startActivity(i)
-                      } catch (e: Exception) {
-                          val dial = Intent(Intent.ACTION_DIAL, Uri.parse("tel:$phone")).apply { addFlags(Intent.FLAG_ACTIVITY_NEW_TASK) }
-                          startActivity(dial)
-                      }
-                  }, 2400)
-              }
-
-              private fun downloadAppFromPlayStore(appName: String) {
-                  speak("Theek hai Sir, kar raha hoon, Play Store par $appName khol raha hoon.")
-                  handler.postDelayed({
-                      try {
-                          val marketIntent = Intent(Intent.ACTION_VIEW, Uri.parse("market://search?q=${Uri.encode(appName)}&c=apps")).apply { addFlags(Intent.FLAG_ACTIVITY_NEW_TASK) }
-                          startActivity(marketIntent)
-                      } catch (e: Exception) {
-                          val webIntent = Intent(Intent.ACTION_VIEW, Uri.parse("https://play.google.com/store/search?q=${Uri.encode(appName)}&c=apps")).apply { addFlags(Intent.FLAG_ACTIVITY_NEW_TASK) }
-                          startActivity(webIntent)
-                      }
-                  }, 2500)
+                  } catch (e: Exception) { speak("Permission check karein.") }
               }
 
               private fun launchInstalledAppByName(spokenName: String): Boolean {
@@ -590,32 +537,16 @@ jobs:
                       val pkg = ri.activityInfo.packageName.lowercase(Locale.getDefault())
                       if (label.contains(search) || search.contains(label) || pkg.contains(search)) {
                           val niceName = ri.loadLabel(pm).toString()
-                          speak("Theek hai Sir, kar raha hoon, $niceName khol raha hoon.")
+                          speak("$niceName khol raha hoon.")
                           handler.postDelayed({
                               val launch = pm.getLaunchIntentForPackage(ri.activityInfo.packageName)
                               if (launch != null) {
                                   launch.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
                                   startActivity(launch)
                               }
-                          }, 2200)
+                          }, 2000)
                           return true
                       }
-                  }
-
-                  if (search.contains("camera") || search.contains("कैमरा")) {
-                      speak("Theek hai Sir, kar raha hoon, camera khol raha hoon.")
-                      handler.postDelayed({ startActivity(Intent(MediaStore.INTENT_ACTION_STILL_IMAGE_CAMERA).apply { addFlags(Intent.FLAG_ACTIVITY_NEW_TASK) }) }, 2000)
-                      return true
-                  }
-                  if (search.contains("setting") || search.contains("सेटिंग")) {
-                      speak("Theek hai Sir, kar raha hoon, settings khol raha hoon.")
-                      handler.postDelayed({ startActivity(Intent(Settings.ACTION_SETTINGS).apply { addFlags(Intent.FLAG_ACTIVITY_NEW_TASK) }) }, 2000)
-                      return true
-                  }
-                  if (search.contains("alarm") || search.contains("अलार्म")) {
-                      speak("Theek hai Sir, kar raha hoon, alarm khol raha hoon.")
-                      handler.postDelayed({ startActivity(Intent(AlarmClock.ACTION_SHOW_ALARMS).apply { addFlags(Intent.FLAG_ACTIVITY_NEW_TASK) }) }, 2000)
-                      return true
                   }
                   return false
               }
@@ -638,12 +569,16 @@ jobs:
                       startActivity(i)
                   }
               }
-                            override fun onInit(status: Int) {
+
+              override fun onInit(status: Int) {
                   if (status == TextToSpeech.SUCCESS) {
                       val res = tts?.setLanguage(Locale("hi", "IN"))
                       if (res == TextToSpeech.LANG_MISSING_DATA || res == TextToSpeech.LANG_NOT_SUPPORTED) { tts?.setLanguage(Locale.US) }
                       tts?.setOnUtteranceProgressListener(object : UtteranceProgressListener() {
-                          override fun onStart(utteranceId: String?) { isTtsSpeaking = true }
+                          override fun onStart(utteranceId: String?) { 
+                              isTtsSpeaking = true 
+                              try { bgRecognizer?.stop() } catch(e: Exception) {}
+                          }
                           override fun onDone(utteranceId: String?) {
                               isTtsSpeaking = false
                               awakeUntilTimestamp = System.currentTimeMillis() + 60000L
@@ -654,15 +589,15 @@ jobs:
                               MainActivity.notifyTtsFinished()
                           }
                       })
-                      speak("Jarvis Ultimate Hands-Free System on ho gaya hai Sir. Bas Jarvis boliye.")
+                      speak("Jarvis ready hai Sir.")
                   }
               }
 
               fun speak(text: String) {
-                  val cleanText = text.replace(Regex("[*#_`~]"), "")
                   isTtsSpeaking = true
+                  try { bgRecognizer?.stop() } catch(e: Exception) {}
                   awakeUntilTimestamp = System.currentTimeMillis() + 60000L
-                  tts?.speak(cleanText, TextToSpeech.QUEUE_FLUSH, null, "jarvis_utt_${System.currentTimeMillis()}")
+                  tts?.speak(text, TextToSpeech.QUEUE_FLUSH, null, "jarvis_utt_${System.currentTimeMillis()}")
               }
 
               fun stopSpeaking() {
@@ -680,8 +615,7 @@ jobs:
               }
           }
           EOF
-
-          cat << 'EOF' > app/src/main/java/com/myassistant/app/MainActivity.kt
+                    cat << 'EOF' > app/src/main/java/com/myassistant/app/MainActivity.kt
           package com.myassistant.app
 
           import android.Manifest
@@ -766,32 +700,13 @@ jobs:
                       override fun shouldOverrideUrlLoading(view: WebView, request: WebResourceRequest): Boolean {
                           val url = request.url.toString()
                           if (url.startsWith("tel:") || url.startsWith("whatsapp:") || url.startsWith("market:") || url.startsWith("intent:") || url.contains("youtube.com") || url.contains("youtu.be") || url.contains("play.google.com")) {
-                              val spokenMsg = when {
-                                  url.contains("youtube") || url.contains("youtu.be") -> "Theek hai Sir, kar raha hoon, YouTube khol kar aapka gaana chala raha hoon."
-                                  url.startsWith("tel:") -> "Theek hai Sir, kar raha hoon, abhi call laga raha hoon."
-                                  url.startsWith("whatsapp:") || url.contains("whatsapp") -> "Theek hai Sir, kar raha hoon, WhatsApp khol raha hoon."
-                                  url.contains("play.google") || url.startsWith("market:") -> "Theek hai Sir, kar raha hoon, Play Store khol raha hoon."
-                                  else -> "Theek hai Sir, kar raha hoon, abhi khol raha hoon."
-                              }
-
-                              FloatingControlService.instance?.speak(spokenMsg)
-
+                              FloatingControlService.instance?.speak("Khol raha hoon.")
                               handler.postDelayed({
                                   try {
-                                      if (url.startsWith("tel:")) {
-                                          val callIntent = Intent(Intent.ACTION_CALL, Uri.parse(url)).apply { addFlags(Intent.FLAG_ACTIVITY_NEW_TASK) }
-                                          startActivity(callIntent)
-                                      } else {
-                                          val i = Intent(Intent.ACTION_VIEW, Uri.parse(url)).apply { addFlags(Intent.FLAG_ACTIVITY_NEW_TASK) }
-                                          startActivity(i)
-                                      }
-                                  } catch (e: Exception) {
-                                      try {
-                                          val fallback = Intent(Intent.ACTION_VIEW, Uri.parse(url)).apply { addFlags(Intent.FLAG_ACTIVITY_NEW_TASK) }
-                                          startActivity(fallback)
-                                      } catch (ex: Exception) {}
-                                  }
-                              }, 2500)
+                                      val i = Intent(Intent.ACTION_VIEW, Uri.parse(url)).apply { addFlags(Intent.FLAG_ACTIVITY_NEW_TASK) }
+                                      startActivity(i)
+                                  } catch (e: Exception) {}
+                              }, 2000)
                               return true
                           }
                           return false
@@ -805,36 +720,9 @@ jobs:
                   webView.loadUrl("file:///android_asset/index.html")
               }
 
-              override fun onResume() {
-                  super.onResume()
-                  FloatingControlService.isAppInForeground = true
-                  startHandsFreeService()
-              }
-
-              override fun onPause() {
-                  super.onPause()
-                  FloatingControlService.isAppInForeground = false
-              }
-
-              private fun startHandsFreeService() {
-                  try {
-                      val sIntent = Intent(this, FloatingControlService::class.java)
-                      if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) { startForegroundService(sIntent) } else { startService(sIntent) }
-                  } catch (e: Exception) { e.printStackTrace() }
-              }
-
-              override fun onNewIntent(intent: Intent?) {
-                  super.onNewIntent(intent)
-                  if (intent?.getBooleanExtra("RETURN_AND_ASK", false) == true) {
-                      val msg = intent.getStringExtra("GREETING_MSG") ?: "Theek hai Sir, maine pichla app band kar diya hai. Ab bataiye agla kya kaam karna hai?"
-                      FloatingControlService.instance?.speak(msg)
-                      webView.evaluateJavascript("window.__jarvisAwakeUntil = Date.now() + 60000;", null)
-                  }
-              }
-
               private fun injectApiKeyAndEngine() {
                   val geminiKey = BuildConfig.GEMINI_API_KEY
-                  val elevenKey = BuildConfig.ELEVENLABS_API_KEY ?: "sk_c36888ff1de346c84f4a7b18d1051d849382a594d69812e6"
+                  val elevenKey = BuildConfig.ELEVENLABS_API_KEY
 
                   val js = """
                       (function() {
@@ -843,82 +731,20 @@ jobs:
                               localStorage.setItem('ELEVENLABS_API_KEY', '$elevenKey');
                               window.GEMINI_API_KEY = '$geminiKey';
                               window.ELEVENLABS_API_KEY = '$elevenKey';
-                              if(window.process && window.process.env) {
-                                  window.process.env.GEMINI_API_KEY = '$geminiKey';
-                                  window.process.env.ELEVENLABS_API_KEY = '$elevenKey';
-                              }
+                              window.process = window.process || { env: {} };
+                              window.process.env.GEMINI_API_KEY = '$geminiKey';
+                              window.process.env.ELEVENLABS_API_KEY = '$elevenKey';
                           } catch(e) {}
-
-                          if (window.__jarvisHandsFreeInstalled) return;
-                          window.__jarvisHandsFreeInstalled = true;
-                          window.__jarvisAwakeUntil = Date.now() + 60000;
-
-                          var OrigSR = window.SpeechRecognition || window.webkitSpeechRecognition;
-                          if (OrigSR) {
-                              function HandsFreeSpeechRecognition() {
-                                  var sr = new OrigSR();
-                                  var userOnResult = null;
-                                  var userOnEnd = null;
-                                  window.__activeSR = sr;
-
-                                  Object.defineProperty(this, 'lang', { get: function() { return sr.lang; }, set: function(v) { sr.lang = v; } });
-                                  Object.defineProperty(this, 'continuous', { get: function() { return sr.continuous; }, set: function(v) { sr.continuous = v; } });
-                                  Object.defineProperty(this, 'interimResults', { get: function() { return sr.interimResults; }, set: function(v) { sr.interimResults = v; } });
-                                  Object.defineProperty(this, 'onstart', { get: function() { return sr.onstart; }, set: function(fn) { sr.onstart = fn; } });
-                                  Object.defineProperty(this, 'onerror', { get: function() { return sr.onerror; }, set: function(fn) { sr.onerror = fn; } });
-                                  Object.defineProperty(this, 'onend', { get: function() { return userOnEnd; }, set: function(fn) { userOnEnd = fn; } });
-                                  Object.defineProperty(this, 'onresult', { get: function() { return userOnResult; }, set: function(fn) { userOnResult = fn; } });
-
-                                  sr.onresult = function(event) {
-                                      try {
-                                          var lastIdx = event.results.length - 1;
-                                          var transcript = (event.results[lastIdx][0].transcript || '').trim();
-                                          var low = transcript.toLowerCase();
-
-                                          var hasWakeWord = low.includes('jarvis') || low.includes('जार्विस') || low.includes('जर्विस') || low.includes('जरविस') || low.includes('javis');
-                                          var isAwake = Date.now() < window.__jarvisAwakeUntil;
-
-                                          if (!hasWakeWord && !isAwake) return;
-
-                                          window.__jarvisAwakeUntil = Date.now() + 60000;
-
-                                          var stripped = low.replace(/hey|hi|hello|ok|okay|सुनो|अरे|जी|भाई|jarvis|जार्विस|जर्विस|जरविस|javis/gi, '').trim();
-                                          if (hasWakeWord && stripped.length < 2) {
-                                              if (window.AndroidTTS) window.AndroidTTS.speak('Ji boliye Sir!');
-                                              return;
-                                          }
-
-                                          if (window.AndroidTTS && window.AndroidTTS.executeSystemCommand(transcript)) return;
-
-                                          if (typeof userOnResult === 'function') {
-                                              userOnResult.call(sr, event);
-                                          }
-                                      } catch (err) {
-                                          if (typeof userOnResult === 'function') {
-                                              userOnResult.call(sr, event);
-                                          }
-                                      }
-                                  };
-
-                                  sr.onend = function(e) {
-                                      if (typeof userOnEnd === 'function') { try { userOnEnd.call(sr, e); } catch(err) {} }
-                                      setTimeout(function() {
-                                          if (window.AndroidTTS) {
-                                              try { sr.start(); } catch(err) {}
-                                          }
-                                      }, 400);
-                                  };
-
-                                  this.start = function() { try { sr.start(); } catch(e) {} };
-                                  this.stop = function() { try { sr.stop(); } catch(e) {} };
-                                  this.abort = function() { try { sr.abort(); } catch(e) {} };
-                              }
-                              window.SpeechRecognition = HandsFreeSpeechRecognition;
-                              window.webkitSpeechRecognition = HandsFreeSpeechRecognition;
-                          }
                       })();
                   """.trimIndent()
                   webView.evaluateJavascript(js, null)
+              }
+
+              private fun startHandsFreeService() {
+                  try {
+                      val sIntent = Intent(this, FloatingControlService::class.java)
+                      if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) { startForegroundService(sIntent) } else { startService(sIntent) }
+                  } catch (e: Exception) { e.printStackTrace() }
               }
 
               inner class NativeCommandBridge {
@@ -936,10 +762,10 @@ jobs:
 
           gradle assembleDebug --no-daemon
 
-      - name: Upload Jarvis API Configured APK
+      - name: Upload Jarvis Fixed APK
         uses: actions/upload-artifact@v4
         with:
-          name: Jarvis-API-Configured-APK
+          name: Jarvis-Fixed-APK
           path: app/build/outputs/apk/debug/app-debug.apk
           if-no-files-found: error
           
