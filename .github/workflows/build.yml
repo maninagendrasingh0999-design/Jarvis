@@ -1,4 +1,4 @@
-name: Jarvis Ultimate Super Agent APK
+name: Jarvis Original Web UI & ElevenLabs Voice APK
 
 on:
   push:
@@ -24,23 +24,39 @@ jobs:
           sudo unzip -q -d /opt/gradle /tmp/gradle.zip
           echo "/opt/gradle/gradle-8.7/bin" >> $GITHUB_PATH
 
-      - name: Generate & Build Ultimate Jarvis APK
+      - name: Build Original Web UI & Generate APK
         run: |
-          mkdir -p app/src/main/assets app/src/main/java/com/myassistant/app
+          mkdir -p /tmp/web_extract app/src/main/assets app/src/main/java/com/myassistant/app
           
-          if [ -f "web-source.zip" ]; then
-            unzip -o "web-source.zip" -d app/src/main/assets/
-          else
-            for z in *.zip; do [ -f "$z" ] && unzip -o "$z" -d app/src/main/assets/; done
+          for z in *.zip; do
+            if [ -f "$z" ]; then
+              unzip -o -q "$z" -d /tmp/web_extract/
+            fi
+          done
+
+          if [ -z "$(ls -A /tmp/web_extract)" ]; then
+            cp -r * /tmp/web_extract/ 2>/dev/null || true
           fi
 
-          if [ ! -f "app/src/main/assets/index.html" ]; then
-            FOUND_HTML=$(find app/src/main/assets -name "index.html" | head -n 1)
+          PKG_FILE=$(find /tmp/web_extract -name "package.json" | head -n 1)
+          if [ -n "$PKG_FILE" ]; then
+            WEB_DIR=$(dirname "$PKG_FILE")
+            cd "$WEB_DIR"
+            npm install --legacy-peer-deps || true
+            npm run build || true
+            cd -
+            if [ -d "$WEB_DIR/dist" ]; then
+              cp -r "$WEB_DIR/dist/"* app/src/main/assets/
+            elif [ -d "$WEB_DIR/build" ]; then
+              cp -r "$WEB_DIR/build/"* app/src/main/assets/
+            else
+              cp -r "$WEB_DIR/"* app/src/main/assets/
+            fi
+          else
+            FOUND_HTML=$(find /tmp/web_extract -name "index.html" | head -n 1)
             if [ -n "$FOUND_HTML" ]; then
-              PARENT_DIR=$(dirname "$FOUND_HTML")
-              if [ "$PARENT_DIR" != "app/src/main/assets" ]; then
-                cp -r "$PARENT_DIR/"* app/src/main/assets/
-              fi
+              HTML_DIR=$(dirname "$FOUND_HTML")
+              cp -r "$HTML_DIR/"* app/src/main/assets/
             fi
           fi
 
@@ -90,8 +106,8 @@ jobs:
                   applicationId "com.myassistant.app"
                   minSdk 26
                   targetSdk 34
-                  versionCode 20
-                  versionName "20.0"
+                  versionCode 31
+                  versionName "31.0"
               }
 
               compileOptions {
@@ -108,8 +124,7 @@ jobs:
               implementation 'androidx.appcompat:appcompat:1.6.1'
           }
           EOF
-
-          cat << 'EOF' > app/src/main/AndroidManifest.xml
+                    cat << 'EOF' > app/src/main/AndroidManifest.xml
           <?xml version="1.0" encoding="utf-8"?>
           <manifest xmlns:android="http://schemas.android.com/apk/res/android">
               <uses-permission android:name="android.permission.INTERNET" />
@@ -408,7 +423,7 @@ jobs:
                   handler.postDelayed({
                       val isAwake = System.currentTimeMillis() < awakeUntilTimestamp
                       updateBadgeVisual(isAwake)
-                      if (!isAppInForeground && !isTtsSpeaking) {
+                      if (!isTtsSpeaking) {
                           try {
                               val intent = Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH).apply {
                                   putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
@@ -590,7 +605,8 @@ jobs:
                   }
                   return false
               }
-                            fun toggleTorch(state: Boolean) {
+
+              fun toggleTorch(state: Boolean) {
                   try {
                       val camManager = getSystemService(Context.CAMERA_SERVICE) as CameraManager
                       val camId = camManager.cameraIdList[0]
@@ -608,8 +624,7 @@ jobs:
                       startActivity(i)
                   }
               }
-
-              override fun onInit(status: Int) {
+                            override fun onInit(status: Int) {
                   if (status == TextToSpeech.SUCCESS) {
                       val res = tts?.setLanguage(Locale("hi", "IN"))
                       if (res == TextToSpeech.LANG_MISSING_DATA || res == TextToSpeech.LANG_NOT_SUPPORTED) { tts?.setLanguage(Locale.US) }
@@ -768,7 +783,8 @@ jobs:
                           return false
                       }
                   }
-                                    webView.webChromeClient = object : WebChromeClient() {
+
+                  webView.webChromeClient = object : WebChromeClient() {
                       override fun onPermissionRequest(request: PermissionRequest) { runOnUiThread { request.grant(request.resources) } }
                   }
 
@@ -930,9 +946,10 @@ jobs:
 
           gradle assembleDebug --no-daemon
 
-      - name: Upload Ultimate Hands-Free Super Agent APK
+      - name: Upload Jarvis Original UI & Voice APK
         uses: actions/upload-artifact@v4
         with:
-          name: Jarvis-Ultimate-SuperAgent-APK
+          name: Jarvis-OriginalUI-Voice-APK
           path: app/build/outputs/apk/debug/app-debug.apk
           if-no-files-found: error
+          
