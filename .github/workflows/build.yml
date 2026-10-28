@@ -719,53 +719,26 @@ jobs:
 
                   webView.loadUrl("file:///android_asset/index.html")
               }
+                        private fun injectApiKeyAndEngine() {
+              val gem = "AIzaSyDNKMF5hhri9fvpU7DSgHyFKB7rdkxKaTI"
+              val ele = "sk_c36888ff1de346c84f4a7b18d1051d849382a594d69812e6"
 
-              private fun injectApiKeyAndEngine() {
-                  val geminiKey = BuildConfig.GEMINI_API_KEY
-                  val elevenKey = BuildConfig.ELEVENLABS_API_KEY
-
-                  val js = """
-                      (function() {
-                          try {
-                              localStorage.setItem('GEMINI_API_KEY', '$geminiKey');
-                              localStorage.setItem('ELEVENLABS_API_KEY', '$elevenKey');
-                              window.GEMINI_API_KEY = '$geminiKey';
-                              window.ELEVENLABS_API_KEY = '$elevenKey';
-                              window.process = window.process || { env: {} };
-                              window.process.env.GEMINI_API_KEY = '$geminiKey';
-                              window.process.env.ELEVENLABS_API_KEY = '$elevenKey';
-                          } catch(e) {}
-                      })();
-                  """.trimIndent()
-                  webView.evaluateJavascript(js, null)
-              }
-
-              private fun startHandsFreeService() {
-                  try {
-                      val sIntent = Intent(this, FloatingControlService::class.java)
-                      if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) { startForegroundService(sIntent) } else { startService(sIntent) }
-                  } catch (e: Exception) { e.printStackTrace() }
-              }
-
-              inner class NativeCommandBridge {
-                  @JavascriptInterface
-                  fun speak(text: String) { FloatingControlService.instance?.speak(text) }
-                  @JavascriptInterface
-                  fun stop() { FloatingControlService.instance?.stopSpeaking() }
-                  @JavascriptInterface
-                  fun executeSystemCommand(transcript: String): Boolean { return FloatingControlService.instance?.handleSpokenCommand(transcript) ?: false }
-                  @JavascriptInterface
-                  fun toggleTorch(state: Boolean) { FloatingControlService.instance?.toggleTorch(state) }
-              }
+              val js = """
+                  (function() {
+                      try {
+                          window.GEMINI_API_KEY = '$gem';
+                          window.ELEVENLABS_API_KEY = '$ele';
+                          localStorage.setItem('GEMINI_API_KEY', '$gem');
+                          localStorage.setItem('ELEVENLABS_API_KEY', '$ele');
+                          window.process = window.process || {};
+                          window.process.env = window.process.env || {};
+                          window.process.env.GEMINI_API_KEY = '$gem';
+                          window.process.env.ELEVENLABS_API_KEY = '$ele';
+                          window.VITE_GEMINI_API_KEY = '$gem';
+                          window.VITE_ELEVENLABS_API_KEY = '$ele';
+                      } catch(e) {}
+                  })();
+              """.trimIndent()
+              webView.evaluateJavascript(js, null)
           }
-          EOF
-
-          gradle assembleDebug --no-daemon
-
-      - name: Upload Jarvis Fixed APK
-        uses: actions/upload-artifact@v4
-        with:
-          name: Jarvis-Fixed-APK
-          path: app/build/outputs/apk/debug/app-debug.apk
-          if-no-files-found: error
           
