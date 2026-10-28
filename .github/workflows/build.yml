@@ -1,4 +1,4 @@
-name: Jarvis Ultimate Hands-Free Super Agent APK
+name: Jarvis Ultimate Super Agent APK
 
 on:
   push:
@@ -24,7 +24,7 @@ jobs:
           sudo unzip -q -d /opt/gradle /tmp/gradle.zip
           echo "/opt/gradle/gradle-8.7/bin" >> $GITHUB_PATH
 
-      - name: Extract Web UI & Generate Ultimate Agent App
+      - name: Generate & Build Ultimate Jarvis APK
         run: |
           mkdir -p app/src/main/assets app/src/main/java/com/myassistant/app
           
@@ -44,37 +44,70 @@ jobs:
             fi
           fi
 
-          echo "include ':app'" > settings.gradle
-          echo "rootProject.name='JarvisApp'" >> settings.gradle
-          
-          cat << 'EOF' > build.gradle
-          buildscript {
-              repositories { google(); mavenCentral() }
-              dependencies { classpath 'com.android.tools.build:gradle:8.2.2' }
+          cat << 'EOF' > settings.gradle
+          pluginManagement {
+              repositories {
+                  google()
+                  mavenCentral()
+                  gradlePluginPortal()
+              }
           }
-          allprojects { repositories { google(); mavenCentral() } }
+          dependencyResolutionManagement {
+              repositoriesMode.set(RepositoriesMode.FAIL_ON_PROJECT_REPOS)
+              repositories {
+                  google()
+                  mavenCentral()
+              }
+          }
+          rootProject.name = "JarvisApp"
+          include ':app'
+          EOF
+
+          cat << 'EOF' > build.gradle
+          plugins {
+              id 'com.android.application' version '8.2.2' apply false
+              id 'org.jetbrains.kotlin.android' version '1.9.22' apply false
+          }
+          EOF
+
+          cat << 'EOF' > gradle.properties
+          org.gradle.jvmargs=-Xmx2048m -Dfile.encoding=UTF-8
+          android.useAndroidX=true
+          kotlin.code.style=official
           EOF
 
           cat << 'EOF' > app/build.gradle
-          apply plugin: 'com.android.application'
+          plugins {
+              id 'com.android.application'
+              id 'org.jetbrains.kotlin.android'
+          }
+
           android {
               namespace 'com.myassistant.app'
               compileSdk 34
+
               defaultConfig {
                   applicationId "com.myassistant.app"
                   minSdk 26
                   targetSdk 34
-                  versionCode 14
-                  versionName "14.0"
+                  versionCode 20
+                  versionName "20.0"
+              }
+
+              compileOptions {
+                  sourceCompatibility JavaVersion.VERSION_17
+                  targetCompatibility JavaVersion.VERSION_17
+              }
+              kotlinOptions {
+                  jvmTarget = '17'
               }
           }
+
           dependencies {
               implementation 'androidx.core:core-ktx:1.12.0'
               implementation 'androidx.appcompat:appcompat:1.6.1'
           }
           EOF
-
-          echo "android.useAndroidX=true" > gradle.properties
 
           cat << 'EOF' > app/src/main/AndroidManifest.xml
           <?xml version="1.0" encoding="utf-8"?>
@@ -103,15 +136,36 @@ jobs:
                   </intent>
               </queries>
 
-              <application android:allowBackup="true" android:label="J.A.R.V.I.S. AI" android:usesCleartextTraffic="true">
-                  <activity android:name=".MainActivity" android:exported="true" android:launchMode="singleTask" android:keepScreenOn="true">
+              <application
+                  android:allowBackup="true"
+                  android:label="J.A.R.V.I.S. AI"
+                  android:icon="@android:drawable/sym_def_app_icon"
+                  android:usesCleartextTraffic="true"
+                  android:theme="@style/Theme.AppCompat.NoActionBar">
+
+                  <activity
+                      android:name=".MainActivity"
+                      android:exported="true"
+                      android:launchMode="singleTask"
+                      android:keepScreenOn="true"
+                      android:configChanges="orientation|screenSize|keyboardHidden">
                       <intent-filter>
                           <action android:name="android.intent.action.MAIN" />
                           <category android:name="android.intent.category.LAUNCHER" />
                       </intent-filter>
                   </activity>
-                  <service android:name=".FloatingControlService" android:enabled="true" android:exported="false" android:foregroundServiceType="microphone" />
-                  <service android:name=".JarvisNotificationListener" android:label="Jarvis Message Reader" android:permission="android.permission.BIND_NOTIFICATION_LISTENER_SERVICE" android:exported="true">
+
+                  <service
+                      android:name=".FloatingControlService"
+                      android:enabled="true"
+                      android:exported="false"
+                      android:foregroundServiceType="microphone" />
+
+                  <service
+                      android:name=".JarvisNotificationListener"
+                      android:label="Jarvis Message Reader"
+                      android:permission="android.permission.BIND_NOTIFICATION_LISTENER_SERVICE"
+                      android:exported="true">
                       <intent-filter>
                           <action android:name="android.service.notification.NotificationListenerService" />
                       </intent-filter>
@@ -131,19 +185,20 @@ jobs:
                   super.onNotificationPosted(sbn)
                   if (sbn == null) return
                   val pkg = sbn.packageName ?: ""
-                  if (pkg.contains("whatsapp") || pkg.contains("sms") || pkg.contains("mms") || pkg.contains("messaging") || pkg.contains("telegram")) {
+                  if (pkg.contains("whatsapp") || pkg.contains("sms") || pkg.contains("mms") || pkg.contains("messaging") || pkg.contains("telegram") || pkg.contains("instagram")) {
                       val extras = sbn.notification.extras
                       val title = extras.getCharSequence(Notification.EXTRA_TITLE)?.toString() ?: "Kisi"
                       val text = extras.getCharSequence(Notification.EXTRA_TEXT)?.toString() ?: ""
-                      if (text.isNotEmpty()) {
-                          val msg = "Sir, $title ka message aaya hai: $text. Kya karna hai?"
+                      if (text.isNotEmpty() && !title.contains("WhatsApp", ignoreCase = true)) {
+                          val msg = "Sir, $title ka message aaya hai: $text. Bataiye kya karna hai?"
                           FloatingControlService.instance?.speak(msg)
                       }
                   }
               }
           }
           EOF
-                    cat << 'EOF' > app/src/main/java/com/myassistant/app/FloatingControlService.kt
+
+          cat << 'EOF' > app/src/main/java/com/myassistant/app/FloatingControlService.kt
           package com.myassistant.app
 
           import android.annotation.SuppressLint
@@ -385,12 +440,12 @@ jobs:
                       return true
                   }
 
-                  if (low.contains("band kar") || low.contains("बंद कर") || low.contains("kat de") || low.contains("काट दे") || low.contains("wapas") || low.contains("वापस") || low.contains("close app") || low.contains("stop youtube")) {
+                  if (low.contains("band kar") || low.contains("बंद कर") || low.contains("kat de") || low.contains("काट दे") || low.contains("wapas") || low.contains("वापस") || low.contains("close app") || low.contains("stop youtube") || low.contains("dusra kaam") || low.contains("दूसरा काम")) {
                       if (low.contains("call") || low.contains("phone") || low.contains("कॉल") || low.contains("फोन")) {
                           endPhoneCall()
                           return true
                       }
-                      bringJarvisToFront("Ji Sir, maine use band kar diya hai. Ab bataiye agla kya kaam karna hai?")
+                      bringJarvisToFront("Theek hai Sir, maine use band kar diya hai. Bataiye ab agla kya kaam karna hai?")
                       return true
                   }
 
@@ -421,19 +476,19 @@ jobs:
                   if (low.contains("torch") || low.contains("flashlight") || low.contains("light") || low.contains("टॉर्च") || low.contains("लाइट")) {
                       val turnOn = !(low.contains("off") || low.contains("band") || low.contains("बंद") || low.contains("bujha"))
                       toggleTorch(turnOn)
-                      speak(if (turnOn) "Theek hai Sir, flashlight on kar di hai." else "Theek hai Sir, flashlight band kar di hai.")
+                      speak(if (turnOn) "Theek hai Sir, kar raha hoon, flashlight on kar di hai." else "Theek hai Sir, flashlight band kar di hai.")
                       return true
                   }
 
                   if (low.contains("khol") || low.contains("खोल") || low.contains("open") || low.contains("chala") || low.contains("चला")) {
                       if (low.contains("youtube") || low.contains("यूट्यूब") || low.contains("gana") || low.contains("गाना") || low.contains("song")) {
-                          val query = cleanCmd.replace(Regex("youtube|यूट्यूब|par|pe|khol|ke|खोल|chala|chala|play|de|do|karo|gana|गाना|song"), "").trim()
-                          speak("Theek hai Sir, main YouTube khol kar chala raha hoon.")
+                          val query = cleanCmd.replace(Regex("youtube|यूट्यूब|par|pe|khol|ke|खोल|chala|play|de|do|karo|gana|गाना|song"), "").trim()
+                          speak("Theek hai Sir, kar raha hoon, YouTube khol raha hoon.")
                           handler.postDelayed({
                               val url = if (query.isNotEmpty()) "https://www.youtube.com/results?search_query=${Uri.encode(query)}" else "https://www.youtube.com"
                               val i = Intent(Intent.ACTION_VIEW, Uri.parse(url)).apply { addFlags(Intent.FLAG_ACTIVITY_NEW_TASK) }
                               startActivity(i)
-                          }, 2200)
+                          }, 2500)
                           return true
                       }
 
@@ -452,7 +507,7 @@ jobs:
                       val tm = getSystemService(Context.TELECOM_SERVICE) as TelecomManager
                       if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
                           tm.acceptRingingCall()
-                          speak("Ji Sir, call utha liya hai.")
+                          speak("Theek hai Sir, call utha liya hai.")
                       }
                   } catch (e: Exception) { speak("Sir, call uthane ke liye phone permission allow karein.") }
               }
@@ -463,14 +518,14 @@ jobs:
                       val tm = getSystemService(Context.TELECOM_SERVICE) as TelecomManager
                       if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
                           val cut = tm.endCall()
-                          speak(if (cut) "Ji Sir, call kat diya hai." else "Sir, abhi koi active call nahi chal rahi hai.")
+                          speak(if (cut) "Theek hai Sir, call kat diya hai." else "Sir, abhi koi active call nahi chal rahi hai.")
                       }
                   } catch (e: Exception) { speak("Sir, call katne ki permission check karein.") }
               }
 
               @SuppressLint("MissingPermission")
               private fun makeDirectCall(phone: String) {
-                  speak("Theek hai Sir, main $phone par call laga raha hoon.")
+                  speak("Theek hai Sir, kar raha hoon, $phone par call laga raha hoon.")
                   handler.postDelayed({
                       try {
                           val i = Intent(Intent.ACTION_CALL, Uri.parse("tel:$phone")).apply { addFlags(Intent.FLAG_ACTIVITY_NEW_TASK) }
@@ -479,11 +534,11 @@ jobs:
                           val dial = Intent(Intent.ACTION_DIAL, Uri.parse("tel:$phone")).apply { addFlags(Intent.FLAG_ACTIVITY_NEW_TASK) }
                           startActivity(dial)
                       }
-                  }, 2200)
+                  }, 2400)
               }
 
               private fun downloadAppFromPlayStore(appName: String) {
-                  speak("Theek hai Sir, main Play Store par $appName download ke liye khol raha hoon.")
+                  speak("Theek hai Sir, kar raha hoon, Play Store par $appName khol raha hoon.")
                   handler.postDelayed({
                       try {
                           val marketIntent = Intent(Intent.ACTION_VIEW, Uri.parse("market://search?q=${Uri.encode(appName)}&c=apps")).apply { addFlags(Intent.FLAG_ACTIVITY_NEW_TASK) }
@@ -492,7 +547,7 @@ jobs:
                           val webIntent = Intent(Intent.ACTION_VIEW, Uri.parse("https://play.google.com/store/search?q=${Uri.encode(appName)}&c=apps")).apply { addFlags(Intent.FLAG_ACTIVITY_NEW_TASK) }
                           startActivity(webIntent)
                       }
-                  }, 2300)
+                  }, 2500)
               }
 
               private fun launchInstalledAppByName(spokenName: String): Boolean {
@@ -506,37 +561,36 @@ jobs:
                       val pkg = ri.activityInfo.packageName.lowercase(Locale.getDefault())
                       if (label.contains(search) || search.contains(label) || pkg.contains(search)) {
                           val niceName = ri.loadLabel(pm).toString()
-                          speak("Theek hai Sir, main $niceName khol raha hoon.")
+                          speak("Theek hai Sir, kar raha hoon, $niceName khol raha hoon.")
                           handler.postDelayed({
                               val launch = pm.getLaunchIntentForPackage(ri.activityInfo.packageName)
                               if (launch != null) {
                                   launch.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
                                   startActivity(launch)
                               }
-                          }, 2000)
+                          }, 2200)
                           return true
                       }
                   }
 
                   if (search.contains("camera") || search.contains("कैमरा")) {
-                      speak("Theek hai Sir, camera khol raha hoon.")
-                      handler.postDelayed({ startActivity(Intent(MediaStore.INTENT_ACTION_STILL_IMAGE_CAMERA).apply { addFlags(Intent.FLAG_ACTIVITY_NEW_TASK) }) }, 1800)
+                      speak("Theek hai Sir, kar raha hoon, camera khol raha hoon.")
+                      handler.postDelayed({ startActivity(Intent(MediaStore.INTENT_ACTION_STILL_IMAGE_CAMERA).apply { addFlags(Intent.FLAG_ACTIVITY_NEW_TASK) }) }, 2000)
                       return true
                   }
                   if (search.contains("setting") || search.contains("सेटिंग")) {
-                      speak("Theek hai Sir, settings khol raha hoon.")
-                      handler.postDelayed({ startActivity(Intent(Settings.ACTION_SETTINGS).apply { addFlags(Intent.FLAG_ACTIVITY_NEW_TASK) }) }, 1800)
+                      speak("Theek hai Sir, kar raha hoon, settings khol raha hoon.")
+                      handler.postDelayed({ startActivity(Intent(Settings.ACTION_SETTINGS).apply { addFlags(Intent.FLAG_ACTIVITY_NEW_TASK) }) }, 2000)
                       return true
                   }
                   if (search.contains("alarm") || search.contains("अलार्म")) {
-                      speak("Theek hai Sir, alarm khol raha hoon.")
-                      handler.postDelayed({ startActivity(Intent(AlarmClock.ACTION_SHOW_ALARMS).apply { addFlags(Intent.FLAG_ACTIVITY_NEW_TASK) }) }, 1800)
+                      speak("Theek hai Sir, kar raha hoon, alarm khol raha hoon.")
+                      handler.postDelayed({ startActivity(Intent(AlarmClock.ACTION_SHOW_ALARMS).apply { addFlags(Intent.FLAG_ACTIVITY_NEW_TASK) }) }, 2000)
                       return true
                   }
                   return false
               }
-
-              fun toggleTorch(state: Boolean) {
+                            fun toggleTorch(state: Boolean) {
                   try {
                       val camManager = getSystemService(Context.CAMERA_SERVICE) as CameraManager
                       val camId = camManager.cameraIdList[0]
@@ -554,7 +608,8 @@ jobs:
                       startActivity(i)
                   }
               }
-                            override fun onInit(status: Int) {
+
+              override fun onInit(status: Int) {
                   if (status == TextToSpeech.SUCCESS) {
                       val res = tts?.setLanguage(Locale("hi", "IN"))
                       if (res == TextToSpeech.LANG_MISSING_DATA || res == TextToSpeech.LANG_NOT_SUPPORTED) { tts?.setLanguage(Locale.US) }
@@ -683,11 +738,11 @@ jobs:
                           val url = request.url.toString()
                           if (url.startsWith("tel:") || url.startsWith("whatsapp:") || url.startsWith("market:") || url.startsWith("intent:") || url.contains("youtube.com") || url.contains("youtu.be") || url.contains("play.google.com")) {
                               val spokenMsg = when {
-                                  url.contains("youtube") || url.contains("youtu.be") -> "Theek hai Sir, main YouTube khol kar aapka gaana chala raha hoon."
-                                  url.startsWith("tel:") -> "Theek hai Sir, main abhi call laga raha hoon."
-                                  url.startsWith("whatsapp:") || url.contains("whatsapp") -> "Theek hai Sir, main WhatsApp khol raha hoon."
-                                  url.contains("play.google") || url.startsWith("market:") -> "Theek hai Sir, main Play Store khol raha hoon."
-                                  else -> "Theek hai Sir, main abhi khol raha hoon."
+                                  url.contains("youtube") || url.contains("youtu.be") -> "Theek hai Sir, kar raha hoon, YouTube khol kar aapka gaana chala raha hoon."
+                                  url.startsWith("tel:") -> "Theek hai Sir, kar raha hoon, abhi call laga raha hoon."
+                                  url.startsWith("whatsapp:") || url.contains("whatsapp") -> "Theek hai Sir, kar raha hoon, WhatsApp khol raha hoon."
+                                  url.contains("play.google") || url.startsWith("market:") -> "Theek hai Sir, kar raha hoon, Play Store khol raha hoon."
+                                  else -> "Theek hai Sir, kar raha hoon, abhi khol raha hoon."
                               }
 
                               FloatingControlService.instance?.speak(spokenMsg)
@@ -713,8 +768,7 @@ jobs:
                           return false
                       }
                   }
-
-                  webView.webChromeClient = object : WebChromeClient() {
+                                    webView.webChromeClient = object : WebChromeClient() {
                       override fun onPermissionRequest(request: PermissionRequest) { runOnUiThread { request.grant(request.resources) } }
                   }
 
@@ -742,7 +796,7 @@ jobs:
               override fun onNewIntent(intent: Intent?) {
                   super.onNewIntent(intent)
                   if (intent?.getBooleanExtra("RETURN_AND_ASK", false) == true) {
-                      val msg = intent.getStringExtra("GREETING_MSG") ?: "Ji Sir, maine pichla app band kar diya hai. Ab bataiye agla kya kaam karna hai?"
+                      val msg = intent.getStringExtra("GREETING_MSG") ?: "Theek hai Sir, maine pichla app band kar diya hai. Ab bataiye agla kya kaam karna hai?"
                       FloatingControlService.instance?.speak(msg)
                       webView.evaluateJavascript("window.__jarvisAwakeUntil = Date.now() + 60000;", null)
                   }
@@ -882,4 +936,3 @@ jobs:
           name: Jarvis-Ultimate-SuperAgent-APK
           path: app/build/outputs/apk/debug/app-debug.apk
           if-no-files-found: error
-          
