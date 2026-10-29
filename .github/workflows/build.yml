@@ -51,13 +51,14 @@ jobs:
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
           ELEVENLABS_API_KEY: ${{ secrets.ELEVENLABS_API_KEY }}
 
-      - name: Capacitor init (if needed)
+      - name: Capacitor config
         run: |
-          if [ ! -f capacitor.config.ts ] && [ ! -f capacitor.config.json ]; then
-            npx cap init Jarvis com.jarvis.assistant --web-dir=dist
-          fi
+          rm -f capacitor.config.ts capacitor.config.js capacitor.config.json
+          if [ -d dist ]; then W=dist; elif [ -d build ]; then W=build; else echo "Build folder nahi mila"; ls; exit 1; fi
+          echo "Web folder: $W"
+          printf '{"appId":"com.jarvis.assistant","appName":"Jarvis","webDir":"%s"}' "$W" > capacitor.config.json
 
-      - name: Add Android platform (if needed)
+      - name: Add Android platform
         run: |
           if [ ! -d android ]; then npx cap add android; fi
 
